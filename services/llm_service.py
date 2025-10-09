@@ -1,5 +1,5 @@
 """
-LLM service using Groq API.
+LLM service using Groq API and Hugging Face transformers.
 Following Single Responsibility Principle: Handle only LLM operations.
 """
 from typing import AsyncGenerator, List
@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from core.interfaces import LLMProvider
 from config.settings import settings
 from utils.logger import get_logger
+
 
 logger = get_logger(__name__)
 

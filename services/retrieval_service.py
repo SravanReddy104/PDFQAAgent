@@ -34,7 +34,7 @@ class HybridRetrieverStrategy(RetrieverStrategy):
         """Retrieve using hybrid approach."""
         try:
             # Get similarity-based results
-            similarity_results = vector_store.similarity_search(query, k=8)
+            similarity_results = vector_store.similarity_search(query, k=5)
 
             logger.info("Similarity results: ", similarity_results)
             

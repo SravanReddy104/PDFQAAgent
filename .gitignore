@@ -1,8 +1,58 @@
-.node_modules
-.vscode
+# Dependencies
+node_modules/
+.vscode/
+
+# Environment variables
 .env
-logs
-generate_pdf.py
-LangChain_vs_LangGraph_Comparison.md
-LangChain_vs_LangGraph_Comparison.pdf
-_pycache_
+*.env
+
+# Logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.cpython-*
+main.cpython-*
+.Python
+
+# Documentation (moved to docs folder)
+docs/
+*.pdf
+
+# Ignore markdown files except root README
+*.md
+!README.md
+
+# Test and debug files
+tests/
+debug/
+
+# Database files
+chroma_db/
+chroma/
+*.db
+*.sqlite
+*.sqlite3
+*.pyc
+
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# IDE files
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated files
+# (moved to debug folder)

@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from core.interfaces import ChunkingStrategy
 from config.settings import settings
 from utils.logger import get_logger
