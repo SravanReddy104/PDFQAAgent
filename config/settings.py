@@ -2,8 +2,7 @@
 Configuration settings for the PDF Q/A Agent.
 Following SOLID principles - Single Responsibility for configuration management.
 """
-import os
-from pathlib import Path
+
 from typing import Optional
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -16,10 +15,14 @@ class Settings(BaseSettings):
     groq_api_key: Optional[str] = Field(default=None, alias="GROQ_API_KEY")
     pinecone_api_key: Optional[str] = Field(default=None, alias="PINECONE_API_KEY")
     tavily_api_key: Optional[str] = Field(default=None, alias="TAVILY_API_KEY")
+    openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    google_api_key: str = Field(default="AIzaSyCbLSHmBTacvIxHrJAMXyTORlDhjDX1nZU", alias="GOOGLE_API_KEY")
     
     # Model Configuration
     groq_model: str = Field(default="llama-3.1-8b-instant", alias="GROQ_MODEL")
-    embedding_model: str = Field(default="all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
+    embedding_model: str = Field(default="all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")  # legacy HF embedding model
+    openai_embedding_model: str = Field(default="text-embedding-3-small", alias="OPENAI_EMBEDDING_MODEL")
+    gemini_embedding_model: str = Field(default="models/embedding-001", alias="GEMINI_EMBEDDING_MODEL")   
     
     # LLM Provider Selection
     llm_provider: str = Field(default="groq", alias="LLM_PROVIDER")  # options: "groq", "hf"
@@ -46,12 +49,12 @@ class Settings(BaseSettings):
     pinecone_region: str = Field(default="us-east-1", alias="PINECONE_REGION")  # us-east-1 works with free tier
     
     # Web Search Configuration
-    enable_web_search: bool = Field(default=True, alias="ENABLE_WEB_SEARCH")  # Enable web search by default
+    enable_web_search: bool = Field(default=False, alias="ENABLE_WEB_SEARCH") 
     web_search_provider: str = Field(default="tavily", alias="WEB_SEARCH_PROVIDER")  # options: "tavily", "duckduckgo"
     max_web_results: int = Field(default=3, alias="MAX_WEB_RESULTS")
     
     # Retrieval Configuration
-    retrieval_k: int = Field(default=5, alias="RETRIEVAL_K")
+    retrieval_k: int = Field(default=10, alias="RETRIEVAL_K")
     similarity_threshold: float = Field(default=0.7, alias="SIMILARITY_THRESHOLD")
     
     # Logging
@@ -65,7 +68,7 @@ class Settings(BaseSettings):
     execution_mode: str = Field(default="chain", alias="EXECUTION_MODE")  # options: "chain", "graph"
     checkpoint_backend: str = Field(default="memory", alias="CHECKPOINT_BACKEND")  # options: "memory", "sqlite"
     enable_human_in_loop: bool = Field(default=False, alias="ENABLE_HUMAN_IN_LOOP")
-    enable_summarization: bool = Field(default=True, alias="ENABLE_SUMMARIZATION")
+    enable_summarization: bool = Field(default=False, alias="ENABLE_SUMMARIZATION")
     max_graph_iterations: int = Field(default=3, alias="MAX_GRAPH_ITERATIONS")
     enable_tracing: bool = Field(default=False, alias="ENABLE_TRACING")
     

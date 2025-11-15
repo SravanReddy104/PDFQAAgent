@@ -16,6 +16,7 @@ from streamlit_extras.add_vertical_space import add_vertical_space
 from main import PDFQAAgent
 from config.settings import settings
 from utils.logger import get_logger
+from services.agent_factory import AgentFactory, AgentWrapper
 
 logger = get_logger(__name__)
 
@@ -26,6 +27,18 @@ class StreamlitUI:
     def __init__(self):
         self.setup_page_config()
         self.initialize_session_state()
+
+    def initialize_agent(self):
+        """Initialize the PDF Q/A agent."""
+        try:
+            with st.spinner("Initializing PDF Q/A Agent..."):
+                st.session_state.pdf_agent = PDFQAAgent()
+                st.session_state.agent_initialized = True
+            st.success("Agent initialized successfully!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Failed to initialize agent: {str(e)}")
+            logger.error(f"Agent initialization failed: {e}")
         
     def setup_page_config(self):
         """Configure Streamlit page settings."""
@@ -46,10 +59,40 @@ class StreamlitUI:
             margin-bottom: 2rem;
         }
         .metric-card {
-            background-color: #f8f9fa;
+            background-color: var(--background-color);
+            color: var(--text-color);
             padding: 1rem;
             border-radius: 0.5rem;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Theme-adaptive variables */
+        :root {
+            --background-color: #f8f9fa;
+            --text-color: #212529;
+            --border-color: #dee2e6;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --background-color: #2d3748;
+                --text-color: #e2e8f0;
+                --border-color: #4a5568;
+            }
+        }
+        
+        /* Streamlit dark theme detection */
+        [data-theme="dark"] .metric-card {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+        
+        [data-theme="light"] .metric-card {
+            background-color: #f8f9fa;
+            color: #212529;
+            border-color: #dee2e6;
         }
         .status-indicator {
             padding: 0.5rem 1rem;
@@ -94,11 +137,48 @@ class StreamlitUI:
             100% { transform: rotate(360deg); }
         }
         .processing-steps {
-            background-color: #f8f9fa;
+            background-color: var(--background-color);
+            color: var(--text-color);
             padding: 1rem;
             border-radius: 0.5rem;
             border-left: 4px solid #17a2b8;
             margin: 1rem 0;
+            border: 1px solid var(--border-color);
+        }
+        
+        /* Dark theme specific adjustments */
+        @media (prefers-color-scheme: dark) {
+            .processing-steps {
+                background-color: #2d3748;
+                color: #e2e8f0;
+                border-color: #4a5568;
+            }
+            
+            .shadow-text {
+                color: #a0aec0 !important;
+            }
+        }
+        
+        /* Streamlit dark theme overrides */
+        [data-theme="dark"] .processing-steps {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+        
+        [data-theme="dark"] .shadow-text {
+            color: #a0aec0 !important;
+        }
+        
+        /* Light theme overrides */
+        [data-theme="light"] .processing-steps {
+            background-color: #f8f9fa;
+            color: #212529;
+            border-color: #dee2e6;
+        }
+        
+        [data-theme="light"] .shadow-text {
+            color: #6c757d !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -115,13 +195,8 @@ class StreamlitUI:
             st.session_state.processed_files = []
         
         if "agent_initialized" not in st.session_state:
-            st.session_state.agent_initialized = False
-            
-        if "processing_status" not in st.session_state:
-            st.session_state.processing_status = {}
-            
-        if "current_operation" not in st.session_state:
-            st.session_state.current_operation = None
+            st.session_state.agent_initialized = False          
+
     
     def show_status_indicator(self, status: str, message: str):
         """Show a status indicator with appropriate styling."""
@@ -173,7 +248,7 @@ class StreamlitUI:
             
             # Agent initialization
             if not st.session_state.agent_initialized:
-                if st.button("🚀 Initialize Agent", type="primary"):
+                if st.info("initializing agent, Please wait..."):
                     self.initialize_agent()
             else:
                 st.success("✅ Agent Initialized")
@@ -182,6 +257,12 @@ class StreamlitUI:
             
             # Strategy selection
             st.header("⚙️ Advanced Settings")
+
+            web_search_service = st.checkbox(
+                "Enable Web Search",
+                value=settings.enable_web_search,
+                help="Enable web search by default"
+            )
             
             # Execution Mode Selection
             execution_mode = st.selectbox(
@@ -249,7 +330,7 @@ class StreamlitUI:
             if st.button("🔄 Update Configuration"):
                 self.update_configuration(
                     execution_mode, vector_store_type, chunking_strategy, 
-                    retrieval_strategy, checkpoint_backend, enable_human_in_loop,
+                    retrieval_strategy, web_search_service, checkpoint_backend, enable_human_in_loop,
                     enable_summarization, max_iterations
                 )
             
@@ -344,20 +425,8 @@ class StreamlitUI:
                 st.session_state.messages = []
                 st.rerun()
     
-    def initialize_agent(self):
-        """Initialize the PDF Q/A agent."""
-        try:
-            with st.spinner("Initializing PDF Q/A Agent..."):
-                st.session_state.pdf_agent = PDFQAAgent()
-                st.session_state.agent_initialized = True
-            st.success("Agent initialized successfully!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Failed to initialize agent: {str(e)}")
-            logger.error(f"Agent initialization failed: {e}")
-    
     def update_configuration(self, execution_mode: str, vector_store_type: str, chunking_strategy: str, 
-                           retrieval_strategy: str, checkpoint_backend: str = "memory", 
+                           retrieval_strategy: str, enable_web_search: bool, checkpoint_backend: str = "memory", 
                            enable_human_in_loop: bool = False, enable_summarization: bool = True,
                            max_iterations: int = 3):
         """Update agent configuration including execution mode and LangGraph options."""
@@ -365,15 +434,16 @@ class StreamlitUI:
             with st.spinner("Updating configuration..."):
                 # Update environment variables for this session
                 import os
-                os.environ["EXECUTION_MODE"] = execution_mode
-                os.environ["VECTOR_STORE_TYPE"] = vector_store_type
-                os.environ["CHECKPOINT_BACKEND"] = checkpoint_backend
-                os.environ["ENABLE_HUMAN_IN_LOOP"] = str(enable_human_in_loop).lower()
-                os.environ["ENABLE_SUMMARIZATION"] = str(enable_summarization).lower()
-                os.environ["MAX_GRAPH_ITERATIONS"] = str(max_iterations)
+                settings.execution_mode = execution_mode
+                settings.vector_store_type = vector_store_type
+                settings.checkpoint_backend = checkpoint_backend
+                settings.enable_human_in_loop = enable_human_in_loop
+                settings.enable_summarization = enable_summarization
+                settings.max_graph_iterations = max_iterations
+                settings.enable_web_search = enable_web_search
                 
                 # Import and use the agent factory
-                from services.agent_factory import AgentFactory, AgentWrapper
+
                 
                 # Create agent using factory
                 agent = AgentFactory.create_agent(
@@ -384,7 +454,8 @@ class StreamlitUI:
                     checkpoint_backend=checkpoint_backend,
                     enable_human_in_loop=enable_human_in_loop,
                     enable_summarization=enable_summarization,
-                    max_iterations=max_iterations
+                    max_iterations=max_iterations,
+                    enable_web_search=enable_web_search
                 )
                 
                 # Wrap agent for unified interface
@@ -537,55 +608,64 @@ class StreamlitUI:
                     async def stream_response_with_status():
                         nonlocal response_text, search_info
                         
-                        # Check if agent supports streaming with callbacks
-                        if hasattr(st.session_state.pdf_agent, 'ask_question_stream_with_callbacks'):
-                            # Use enhanced streaming with search callbacks
-                            async for chunk_data in st.session_state.pdf_agent.ask_question_stream_with_callbacks(question):
-                                if isinstance(chunk_data, dict):
-                                    # Handle status updates
-                                    if chunk_data.get('type') == 'status':
-                                        with status_placeholder.container():
-                                            self.show_loader_with_text(chunk_data.get('message', ''))
-                                    elif chunk_data.get('type') == 'search':
-                                        search_info.append(chunk_data.get('message', ''))
-                                        with status_placeholder.container():
-                                            self.show_loader_with_text(f"🌐 {chunk_data.get('message', '')}")
-                                    elif chunk_data.get('type') == 'content':
-                                        response_text += chunk_data.get('content', '')
-                                        response_placeholder.markdown(response_text)
-                                else:
-                                    # Regular text chunk
-                                    response_text += str(chunk_data)
-                                    response_placeholder.markdown(response_text)
-                        else:
-                            # Fallback to regular streaming with manual status updates
-                            with status_placeholder.container():
-                                self.show_loader_with_text("Searching knowledge base...")
-                            
-                            # Check if web search is enabled and show status
-                            if hasattr(st.session_state.pdf_agent, 'web_search') and st.session_state.pdf_agent.web_search:
-                                try:
-                                    search_provider = st.session_state.pdf_agent.web_search.get_provider_info()
-                                    if search_provider.get('available', False):
-                                        with status_placeholder.container():
-                                            provider_name = search_provider.get('provider', 'Web').title()
-                                            self.show_loader_with_text(f"Searching {provider_name} for additional context...")
+                        # Show knowledge base search status
+                        with status_placeholder.container():
+                            self.show_loader_with_text("Searching knowledge base...")
+                        
+                        # Add a small delay to make the status visible
+                        await asyncio.sleep(0.5)
+                        
+                        # Check if web search is enabled and show status
+                        
+                        if hasattr(st.session_state.pdf_agent, 'web_search') and st.session_state.pdf_agent.web_search:
+                            try:
+                                search_provider = st.session_state.pdf_agent.web_search.get_provider_info()
+                                if search_provider.get('available', False):
+                                    with status_placeholder.container():
+                                        provider_name = search_provider.get('provider', 'Web').title()
+                                        self.show_loader_with_text(f"Searching {provider_name} for additional context...")
+                                    
+                                    # Add delay to show web search status
+                                    await asyncio.sleep(0.8)
+                                    
+                                    # Collect top web results (title + URL) for search info
+                                    try:
+                                        if settings.enable_web_search:
+                                            top_results = await asyncio.to_thread(
+                                                st.session_state.pdf_agent.web_search.search,
+                                                question,
+                                                3
+                                            )
+                                            if top_results:
+                                                search_info.append(f"Used {provider_name} search")
+                                                for r in top_results[:3]:
+                                                    title = (r.get('title') or 'Untitled').strip()
+                                                    url = (r.get('url') or '').strip()
+                                                    if url:
+                                                        search_info.append(f"{title} — {url}")
+                                    except Exception:
+                                        # If collecting results fails, just continue without URLs
                                         search_info.append(f"Used {provider_name} search")
-                                except Exception:
-                                    pass
+                            except Exception:
+                                pass
+                        
+                        # Show generation status
+                        with status_placeholder.container():
+                            self.show_loader_with_text("Generating AI response...")
+                        
+                        # Add delay to show generation status
+                        await asyncio.sleep(0.3)
+                        
+                        # Stream the response
+                        content_started = False
+                        async for chunk in st.session_state.pdf_agent.ask_question_stream(question):
+                            response_text += chunk
+                            response_placeholder.markdown(response_text)
                             
-                            # Show generation status
-                            with status_placeholder.container():
-                                self.show_loader_with_text("Generating AI response...")
-                            
-                            # Stream the response
-                            async for chunk in st.session_state.pdf_agent.ask_question_stream(question):
-                                response_text += chunk
-                                response_placeholder.markdown(response_text)
-                                
-                                # Clear status once we start getting content
-                                if len(response_text) > 50:  # After some content is received
-                                    status_placeholder.empty()
+                            # Clear status once we start getting meaningful content
+                            if not content_started and len(response_text.strip()) > 80:
+                                status_placeholder.empty()
+                                content_started = True
                     
                     # Run the async function
                     asyncio.run(stream_response_with_status())
@@ -652,7 +732,7 @@ class StreamlitUI:
             st.error(f"Error loading agent status: {str(e)}")
     
     def render_knowledge_base_stats(self):
-        """Render knowledge base statistics."""
+        """Render knowledge base statistics with theme-adaptive styling."""
         st.header("📊 Knowledge Base Stats")
         
         try:
@@ -663,9 +743,20 @@ class StreamlitUI:
             
             st.markdown(f"""
             <div class="metric-card">
-                <h4>📚 Documents: {stats.get('document_count', 0)}</h4>
-                <p>Collection: {stats.get('collection_name', 'Unknown')}</p>
-                <p>Vector Store: <strong>{vector_store_type}</strong></p>
+                <div style="display: flex; align-items: center; margin-bottom: 0.75rem;">
+                    <span style="font-size: 1.5rem; margin-right: 0.5rem;">📚</span>
+                    <h4 style="margin: 0; color: var(--text-color);">
+                        Documents: <span style="color: #1f77b4; font-weight: bold;">{stats.get('document_count', 0)}</span>
+                    </h4>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <span style="color: var(--text-color); opacity: 0.8;">Collection:</span>
+                    <span style="margin-left: 0.5rem; font-weight: 500; color: var(--text-color);">{stats.get('collection_name', 'Unknown')}</span>
+                </div>
+                <div>
+                    <span style="color: var(--text-color); opacity: 0.8;">Vector Store:</span>
+                    <span style="margin-left: 0.5rem; font-weight: bold; color: #28a745;">{vector_store_type}</span>
+                </div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -677,7 +768,7 @@ class StreamlitUI:
         st.header("🌐 Web Search Status")
         
         try:
-            if hasattr(st.session_state.pdf_agent, 'web_search'):
+            if hasattr(st.session_state.pdf_agent, 'web_search') and settings.enable_web_search:
                 search_info = st.session_state.pdf_agent.web_search.get_provider_info()
                 
                 if search_info.get('available', False):

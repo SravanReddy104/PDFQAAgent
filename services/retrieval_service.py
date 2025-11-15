@@ -4,6 +4,7 @@ Following Strategy Pattern: Different retrieval approaches.
 """
 from typing import List, Dict, Any
 from core.interfaces import RetrieverStrategy, VectorStore
+from config.settings import settings
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +16,7 @@ class BasicRetrieverStrategy(RetrieverStrategy):
     def retrieve(self, query: str, vector_store: VectorStore) -> List[Dict[str, Any]]:
         """Retrieve documents using basic similarity search."""
         try:
-            results = vector_store.similarity_search(query, k=5)
+            results = vector_store.similarity_search(query, settings.retrieval_k)
             logger.info(f"Basic retrieval found {len(results)} documents")
             return results
         except Exception as e:
@@ -34,7 +35,7 @@ class HybridRetrieverStrategy(RetrieverStrategy):
         """Retrieve using hybrid approach."""
         try:
             # Get similarity-based results
-            similarity_results = vector_store.similarity_search(query, k=5)
+            similarity_results = vector_store.similarity_search(query, settings.retrieval_k)
 
             logger.info("Similarity results: ", similarity_results)
             
@@ -68,8 +69,8 @@ class HybridRetrieverStrategy(RetrieverStrategy):
             
         except Exception as e:
             logger.error(f"Error in hybrid retrieval: {e}")
+            raise e
             # Fallback to basic retrieval
-            return BasicRetrieverStrategy().retrieve(query, vector_store)
 
 
 class ContextualRetrieverStrategy(RetrieverStrategy):
@@ -83,7 +84,7 @@ class ContextualRetrieverStrategy(RetrieverStrategy):
             
             all_results = []
             for expanded_query in expanded_queries:
-                results = vector_store.similarity_search(expanded_query, k=3)
+                results = vector_store.similarity_search(expanded_query, k=settings.retrieval_k)
                 all_results.extend(results)
             
             # Remove duplicates and rank

@@ -5,7 +5,9 @@ Following Single Responsibility Principle: Handle only vector storage operations
 from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_huggingface import HuggingFaceEmbeddings  # commented per request to switch to OpenAI embeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+# from langchain_openai import OpenAIEmbeddings
 from core.interfaces import VectorStore
 from config.settings import settings
 from utils.logger import get_logger
@@ -20,16 +22,40 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+# Helper: derive embedding dimension from OpenAI embedding model name
+# _OPENAI_EMBED_DIMS = {
+#     "text-embedding-3-small": 1536,
+#     "text-embedding-3-large": 3072,
+# }
+
+# def _openai_embed_dim(model: str) -> int:
+#     return _OPENAI_EMBED_DIMS.get(model, 1536)
+
 
 class ChromaVectorStore(VectorStore):
     """ChromaDB implementation of vector store."""
     
     def __init__(self):
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
+        # Hugging Face embeddings were previously used; switched to OpenAI per request
+        # self.embeddings = HuggingFaceEmbeddings(
+        #     model_name=settings.embedding_model,
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
+        
+        # if not settings.openai_api_key:
+        #     raise ValueError("OPENAI_API_KEY is required for OpenAI embeddings")
+        
+        # self.embeddings = OpenAIEmbeddings(
+        #     api_key=settings.openai_api_key,
+        #     model=settings.openai_embedding_model,
+        # )
+
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            google_api_key=settings.google_api_key,
+            model="models/gemini-embedding-001"  # or "models/text-embedding-004"
         )
+            
         
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
@@ -105,7 +131,7 @@ class ChromaVectorStore(VectorStore):
             
         except Exception as e:
             logger.error(f"Error in similarity search: {e}")
-            raise
+            raise e
     
     def delete_collection(self) -> None:
         """Delete the entire collection."""
@@ -167,12 +193,20 @@ class PineconeVectorStore(VectorStore):
         if not settings.pinecone_api_key:
             raise ValueError("PINECONE_API_KEY is required for Pinecone vector store")
         
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # Hugging Face embeddings were previously used; switched to OpenAI per request
+        # self.embeddings = HuggingFaceEmbeddings(
+        #     model_name=settings.embedding_model,
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
         
+        if not settings.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required for Google Gemini embeddings")
+        
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            google_api_key=settings.google_api_key,
+            model="models/gemini-embedding-001"  # or "models/text-embedding-004"
+        )
         # Initialize Pinecone client with new API
         self.pc = Pinecone(api_key=settings.pinecone_api_key)
         
@@ -183,7 +217,7 @@ class PineconeVectorStore(VectorStore):
         if self.index_name not in existing_indexes:
             self.pc.create_index(
                 name=self.index_name,
-                dimension=384,  # all-MiniLM-L6-v2 dimension
+                dimension=1536,
                 metric="cosine",
                 spec=ServerlessSpec(
                     cloud=settings.pinecone_cloud,

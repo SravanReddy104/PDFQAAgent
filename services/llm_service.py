@@ -3,13 +3,14 @@ LLM service using Groq API and Hugging Face transformers.
 Following Single Responsibility Principle: Handle only LLM operations.
 """
 from typing import AsyncGenerator, List
-import asyncio
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.output_parsers import PydanticOutputParser
 from core.interfaces import LLMProvider
 from config.settings import settings
 from utils.logger import get_logger
-
+from services.prompts import detectGreeting, systemPrompt, userPrompt
+from services.models import GreetingClassifier
 
 logger = get_logger(__name__)
 
@@ -26,15 +27,32 @@ class GroqLLMService(LLMProvider):
             max_retries=2,
         )
         logger.info(f"Initialized Groq LLM with model: {settings.groq_model}")
+
+    async def call_llm(self, user_input: str) -> GreetingClassifier:
+        """
+        Classify if the input is a greeting or not.
+        Returns a GreetingClassifier instance with 'result' field ('yes' or 'no').
+        """
+        try:
+            prompt_template, parser = detectGreeting()
+            chain = prompt_template | self.llm | parser
+            # Pass the user's input to the chain
+            response = await chain.ainvoke({"prompt": user_input})
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in call_llm: {e}")
+            # Return a default response in case of error
+            return GreetingClassifier(result="no")
     
-    async def generate_response(self, prompt: str, context: str) -> AsyncGenerator[str, None]:
+    async def generate_response(self, prompt: str, context: str, conversation_history: List[str]):
         """Generate streaming response from LLM."""
         try:
-            system_prompt = self._create_system_prompt()
-            user_prompt = self._create_user_prompt(prompt, context)
+            system_prompt = systemPrompt()
+            user_prompt = userPrompt(prompt, context, conversation_history)
             
             messages = [
-                SystemMessage(content=system_prompt),
+                SystemMessage(content=system_prompt.template),
                 HumanMessage(content=user_prompt)
             ]
             logger.info("Generated messages: ", messages)
@@ -51,30 +69,6 @@ class GroqLLMService(LLMProvider):
         """Generate embeddings for texts (not implemented for Groq)."""
         # Groq doesn't provide embeddings, this would use a separate service
         raise NotImplementedError("Groq doesn't provide embeddings. Use HuggingFace embeddings instead.")
-    
-    def _create_system_prompt(self) -> str:
-        """Create system prompt for the LLM."""
-        return """You are an intelligent PDF Q/A assistant. Your role is to answer questions based on the provided PDF document context.
-
-Guidelines:
-1. Answer questions accurately based ONLY on the provided context
-2. If the answer is not in the context, clearly state that you don't have enough information
-3. Provide detailed, well-structured answers when possible
-4. Include relevant quotes from the source material when appropriate
-5. If asked about specific pages or sections, reference them in your answer
-6. Be concise but comprehensive in your responses
-7. If the question is ambiguous, ask for clarification
-
-Remember: Only use information from the provided context. Do not make up information or use external knowledge."""
-    
-    def _create_user_prompt(self, question: str, context: str) -> str:
-        """Create user prompt with question and context."""
-        return f"""Context from PDF documents:
-{context}
-
-Question: {question}
-
-Please provide a detailed answer based on the context above."""
     
     async def generate_summary(self, text: str, max_length: int = 200) -> str:
         """Generate a summary of the provided text."""

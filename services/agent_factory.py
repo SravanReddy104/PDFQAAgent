@@ -4,8 +4,9 @@ Provides choice between traditional chain-based and LangGraph-based execution.
 """
 
 import os
-from typing import Optional, Literal, Dict, Any
+from typing import Optional, Dict, Any
 from enum import Enum
+import uuid
 
 from config.settings import settings
 from main import PDFQAAgent  # Traditional chain-based agent
@@ -202,7 +203,7 @@ class AgentWrapper:
     async def ask_question(self, question: str, **kwargs) -> str:
         """Ask a question using the appropriate agent method."""
         if self._is_graph_agent:
-            thread_id = kwargs.get('thread_id', 'default')
+            thread_id = kwargs.get('thread_id', uuid.uuid4())
             return await self.agent.ask_question(question, thread_id)
         else:
             return await self.agent.ask_question(question)

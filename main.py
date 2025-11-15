@@ -4,7 +4,7 @@ Dependency Inversion Principle: Depends on abstractions, not concretions.
 """
 import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from services import (
     PDFProcessor, 
     VectorStoreFactory,
@@ -14,6 +14,8 @@ from services import (
 )
 from config.settings import settings
 from utils.logger import get_logger
+from langchain_core.prompts import PromptTemplate
+from services.models import GreetingClassifier
 
 logger = get_logger(__name__)
 
@@ -28,7 +30,10 @@ class PDFQAAgent:
             # Use vector store type from environment or settings
             vector_store_type = os.getenv('VECTOR_STORE_TYPE', settings.vector_store_type)
             self.vector_store = VectorStoreFactory.create_vector_store(store_type=vector_store_type)
-            self.web_search = WebSearchService(provider="tavily")
+            
+            # Only initialize web search if enabled in settings
+            self.web_search = WebSearchService(provider="tavily") if settings.enable_web_search else None
+            
             self.llm_service = GroqLLMService()
             self.retriever = RetrieverFactory.create_retriever(retrieval_strategy)
             
@@ -59,95 +64,55 @@ class PDFQAAgent:
         except Exception as e:
             logger.error(f"Error processing PDF {file_path}: {e}")
             return False
-    
-    async def ask_question(self, question: str) -> str:
-        """Ask a question and get a streaming response."""
-        try:
-            logger.info(f"Processing question: {question[:100]}...")
-            
-            # Retrieve relevant documents from vector store
-            relevant_docs = self.retriever.retrieve(question, self.vector_store)
-            
-            # Optionally enhance with web search results
-            web_results = []
-            if self.web_search.is_available():
-                logger.info(f"Web search is available, searching for: {question}")
-                web_results = self.web_search.search(question, max_results=2)
-                logger.info(f"Found {len(web_results)} web search results")
-                if web_results:
-                    logger.info(f"Sample web result: {web_results[0].get('title', 'No title')}")
-                else:
-                    logger.warning("Web search returned no results")
-            else:
-                logger.warning("Web search is not available")
-            
-            if not relevant_docs:
-                if web_results:
-                    # Use only web search results if no documents found
-                    context = self._prepare_web_context(web_results)
-                    response_parts = []
-                    async for chunk in self.llm_service.generate_response(question, context):
-                        response_parts.append(chunk)
-                    return "".join(response_parts)
-                else:
-                    return "I couldn't find any relevant information in the knowledge base or web search to answer your question."
-            
-            # Prepare context
-            context = self._prepare_context(relevant_docs, web_results)
-            
-            # Generate response
-            response_parts = []
-            async for chunk in self.llm_service.generate_response(question, context):
-                response_parts.append(chunk)
-            
-            full_response = "".join(response_parts)
-            logger.info("Question answered successfully")
-            
-            return full_response
-            
-        except Exception as e:
-            logger.error(f"Error answering question: {e}")
-            return f"An error occurred while processing your question: {str(e)}"
-    
+
     async def ask_question_stream(self, question: str):
         """Ask a question and get a streaming response generator."""
         try:
             logger.info(f"Processing streaming question: {question[:100]}...")
-            
-            # Retrieve relevant documents from vector store
-            relevant_docs = self.retriever.retrieve(question, self.vector_store)
-            
-            # Optionally enhance with web search results
-            web_results = []
-            if self.web_search.is_available():
-                logger.info(f"Web search is available, searching for: {question}")
-                web_results = self.web_search.search(question, max_results=2)
-                logger.info(f"Found {len(web_results)} web search results")
-                if web_results:
-                    logger.info(f"Sample web result: {web_results[0].get('title', 'No title')}")
-                else:
-                    logger.warning("Web search returned no results")
+
+            response: GreetingClassifier = await self.llm_service.call_llm(question)
+
+            if response.result == 'yes':
+                logger.info("Detected greeting, skipping question processing")
+                greeting = "Hello! How can I help you today?"
+                yield greeting
+                return
             else:
-                logger.warning("Web search is not available")
-            
-            if not relevant_docs:
-                if web_results:
-                    # Use only web search results if no documents found
-                    context = self._prepare_web_context(web_results)
-                    async for chunk in self.llm_service.generate_response(question, context):
-                        yield chunk
-                    return
-                else:
-                    yield "I couldn't find any relevant information in the knowledge base or web search to answer your question."
-                    return
-            
-            # Prepare context
-            context = self._prepare_context(relevant_docs, web_results)
-            
-            # Stream response
-            async for chunk in self.llm_service.generate_response(question, context):
-                yield chunk
+                logger.info("Question is not a greeting, processing question")
+                # Retrieve relevant documents from vector store
+                relevant_docs = self.retriever.retrieve(question, self.vector_store)
                 
+                # Optionally enhance with web search results
+                web_results = []
+                if self.web_search and self.web_search.is_available():
+                    logger.info(f"Web search is available, searching for: {question}")
+                    web_results = self.web_search.search(question, max_results=2)
+                    logger.info(f"Found {len(web_results)} web search results")
+                    if web_results:
+                        logger.info(f"Sample web result: {web_results[0].get('title', 'No title')}")
+                    else:
+                        logger.warning("Web search returned no results")
+                else:
+                    logger.warning("Web search is not available")
+                
+                if not relevant_docs:
+                    if web_results:
+                        # Use only web search results if no documents found
+                        context = self._prepare_web_context(web_results)
+                        async for chunk in self.llm_service.generate_response(question, context):
+                            yield chunk
+                        return
+                    else:
+                        yield "I couldn't find any relevant information in the knowledge base or web search to answer your question."
+                        return
+                
+                # Prepare context
+                context = self._prepare_context(relevant_docs, web_results)
+                
+                # Stream response
+                async for chunk in self.llm_service.generate_response(question, context):
+                    yield chunk
+                    
         except Exception as e:
             logger.error(f"Error in streaming question: {e}")
             yield f"An error occurred while processing your question: {str(e)}"
@@ -207,7 +172,7 @@ Content: {result.get('content', '')}
         try:
             stats = self.vector_store.get_collection_stats()
             # Add web search info
-            if hasattr(self, 'web_search'):
+            if hasattr(self, 'web_search') and self.web_search:
                 stats.update(self.web_search.get_provider_info())
             return stats
         except Exception as e:

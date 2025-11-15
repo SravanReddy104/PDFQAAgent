@@ -5,7 +5,6 @@ Following Open/Closed Principle: Easy to extend with new chunking strategies.
 from typing import List, Dict, Any
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from core.interfaces import ChunkingStrategy
 from config.settings import settings
@@ -51,43 +50,43 @@ class RecursiveChunkingStrategy(ChunkingStrategy):
             raise
 
 
-class SemanticChunkingStrategy(ChunkingStrategy):
-    """Semantic chunking strategy based on sentence embeddings."""
+# class SemanticChunkingStrategy(ChunkingStrategy):
+#     """Semantic chunking strategy based on sentence embeddings."""
     
-    def __init__(self):
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model
-        )
-        self.semantic_chunker = SemanticChunker(
-            embeddings=self.embeddings,
-            breakpoint_threshold_type="percentile",
-            breakpoint_threshold_amount=95
-        )
+#     def __init__(self):
+#         self.embeddings = HuggingFaceEmbeddings(
+#             model_name=settings.embedding_model
+#         )
+#         self.semantic_chunker = SemanticChunker(
+#             embeddings=self.embeddings,
+#             breakpoint_threshold_type="percentile",
+#             breakpoint_threshold_amount=95
+#         )
     
-    def chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Chunk text using semantic similarity."""
-        try:
-            chunks = self.semantic_chunker.split_text(text)
+#     def chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+#         """Chunk text using semantic similarity."""
+#         try:
+#             chunks = self.semantic_chunker.split_text(text)
             
-            chunked_docs = []
-            for i, chunk in enumerate(chunks):
-                chunk_metadata = {
-                    **metadata,
-                    "chunk_id": i,
-                    "chunk_size": len(chunk),
-                    "chunking_strategy": "semantic"
-                }
-                chunked_docs.append({
-                    "content": chunk,
-                    "metadata": chunk_metadata
-                })
+#             chunked_docs = []
+#             for i, chunk in enumerate(chunks):
+#                 chunk_metadata = {
+#                     **metadata,
+#                     "chunk_id": i,
+#                     "chunk_size": len(chunk),
+#                     "chunking_strategy": "semantic"
+#                 }
+#                 chunked_docs.append({
+#                     "content": chunk,
+#                     "metadata": chunk_metadata
+#                 })
             
-            logger.info(f"Created {len(chunked_docs)} chunks using semantic strategy")
-            return chunked_docs
+#             logger.info(f"Created {len(chunked_docs)} chunks using semantic strategy")
+#             return chunked_docs
             
-        except Exception as e:
-            logger.error(f"Error in semantic chunking: {e}")
-            raise
+#         except Exception as e:
+#             logger.error(f"Error in semantic chunking: {e}")
+#             raise
 
 
 class ContextualChunkingStrategy(ChunkingStrategy):
@@ -165,7 +164,7 @@ class HybridChunkingStrategy(ChunkingStrategy):
     
     def __init__(self):
         self.recursive_strategy = RecursiveChunkingStrategy()
-        self.semantic_strategy = SemanticChunkingStrategy()
+        # self.semantic_strategy = SemanticChunkingStrategy()
     
     def chunk_text(self, text: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Use hybrid approach for optimal chunking."""
@@ -200,7 +199,6 @@ class ChunkingStrategyFactory:
         """Create a chunking strategy based on type."""
         strategies = {
             "recursive": RecursiveChunkingStrategy,
-            "semantic": SemanticChunkingStrategy,
             "contextual": ContextualChunkingStrategy,
             "hybrid": HybridChunkingStrategy
         }

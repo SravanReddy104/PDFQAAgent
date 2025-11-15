@@ -260,3 +260,4 @@ _review_model = ReviewModel()
 def get_review_model() -> ReviewModel:
     """Get the global review model instance."""
     return _review_model
+

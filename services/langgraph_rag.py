@@ -14,11 +14,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
-from langchain.schema import Document
-
-# Middleware imports
-from langchain.callbacks.human import HumanApprovalCallbackHandler
-from langchain.callbacks.manager import CallbackManager
 
 from config.settings import settings
 from services.vector_store import VectorStoreFactory
@@ -44,7 +39,6 @@ class RAGState(TypedDict):
     iteration_count: int
     should_continue: bool
 
-
 class LangGraphRAGAgent:
     """Enhanced RAG agent using LangGraph for workflow orchestration."""
     
@@ -56,7 +50,8 @@ class LangGraphRAGAgent:
         checkpoint_backend: str = "memory",
         enable_human_in_loop: bool = False,
         enable_summarization: bool = True,
-        max_iterations: int = 3
+        max_iterations: int = 3,
+        web_search_service: Optional[WebSearchService] = None
     ):
         """Initialize the LangGraph RAG agent."""
         self.vector_store_type = vector_store_type or os.getenv('VECTOR_STORE_TYPE', settings.vector_store_type)
@@ -65,6 +60,7 @@ class LangGraphRAGAgent:
         self.enable_human_in_loop = enable_human_in_loop
         self.enable_summarization = enable_summarization
         self.max_iterations = max_iterations
+        self.web_search_service = web_search_service
         
         # Initialize components
         self._initialize_components()
@@ -81,21 +77,19 @@ class LangGraphRAGAgent:
         """Initialize RAG components."""
         try:
             self.vector_store = VectorStoreFactory.create_vector_store(self.vector_store_type)
-            self.web_search = WebSearchService()
+            
+            # Only initialize web search if enabled in settings
+            self.web_search = WebSearchService() if settings.enable_web_search else None
+            
             self.retriever = RetrieverFactory.create_retriever(self.retrieval_strategy)
             self.llm_service = GroqLLMService()
             
             # Setup callback manager for human-in-the-loop
-            if self.enable_human_in_loop:
-                self.callback_manager = CallbackManager([
-                    HumanApprovalCallbackHandler()
-                ])
-            else:
-                self.callback_manager = None
+            self.callback_manager = None
                 
         except Exception as e:
             logger.error(f"Error initializing components: {e}")
-            raise
+            raise e
     
     def _setup_checkpointer(self, backend: str):
         """Setup checkpoint backend for state persistence."""
@@ -254,7 +248,7 @@ class LangGraphRAGAgent:
                     url = result.get("url", "")
                     context_parts.append(f"{i}. {title}\n   {content}\n   Source: {url}")
             
-            state["context"] = "\n".join(context_parts)
+            state["context"] = "\n".join(context_parts).replace("\n\n", "\n").strip()
             logger.info(f"Context prepared: {len(state['context'])} characters")
             
             return state
@@ -302,10 +296,11 @@ class LangGraphRAGAgent:
         try:
             question = state["question"]
             context = state.get("context", "")
+            conversation_history = state.get("messages", [])
             
             # Generate response using the LLM service
             response_parts = []
-            async for chunk in self.llm_service.generate_response(question, context):
+            async for chunk in self.llm_service.generate_response(question, context, conversation_history):
                 response_parts.append(chunk)
             
             answer = "".join(response_parts)
@@ -319,6 +314,10 @@ class LangGraphRAGAgent:
                 HumanMessage(content=question),
                 AIMessage(content=answer)
             ])
+
+            ## trim the messages if it crosses the 1500 words
+            if len(state["messages"]) > 1500:
+                state["messages"] = state["messages"][len(state["messages"]) - 1500:]
             
             logger.info(f"Answer generated: {len(answer)} characters")
             return state
@@ -334,17 +333,17 @@ class LangGraphRAGAgent:
             answer = state.get("answer", "")
             
             # Only summarize if answer is very long
-            if len(answer) > 2000:
-                summary_prompt = f"Please provide a concise summary of this response:\n\n{answer}"
-                
-                summary_parts = []
-                async for chunk in self.llm_service.generate_response(summary_prompt, ""):
-                    summary_parts.append(chunk)
-                
-                summary = "".join(summary_parts)
-                state["answer"] = f"{summary}\n\n---\n[Full response available on request]"
-                
-                logger.info("Response summarized")
+            
+            summary_prompt = f"Please provide a concise summary of this response:\n\n{answer}"
+            
+            summary_parts = []
+            async for chunk in self.llm_service.generate_response(summary_prompt, "", ""):
+                summary_parts.append(chunk)
+            
+            summary = "".join(summary_parts)
+            state["answer"] = f"{summary}\n\n---\n[Full response available on request]"
+            
+            logger.info("Response summarized")
             
             return state
             
@@ -354,6 +353,7 @@ class LangGraphRAGAgent:
     
     async def _handle_error(self, state: RAGState) -> RAGState:
         """Handle errors in the workflow."""
+        logger.info("entered handle error")
         error = state.get("error", "Unknown error")
         state["answer"] = f"I apologize, but I encountered an error while processing your question: {error}"
         
@@ -362,6 +362,8 @@ class LangGraphRAGAgent:
     
     def _should_prepare_context(self, state: RAGState) -> str:
         """Decide whether to prepare context or handle error."""
+
+        logger.info("entered should prepare context")
         if state.get("error"):
             return "error"
         return "prepare_context"
@@ -438,14 +440,23 @@ class LangGraphRAGAgent:
                 node_output = event[node_name]
                 
                 # Yield progress updates
-                if node_name == "retrieve_documents":
+                if node_name == 'validate_input':
+                    yield f"Validated input...\n"
+                elif node_name == "retrieved_documents":
                     yield f"🔍 Retrieved {len(node_output.get('retrieved_docs', []))} documents...\n"
-                elif node_name == "search_web":
-                    yield f"🌐 Found {len(node_output.get('web_results', []))} web results...\n"
+                elif node_name == "searched_web":
+                    yield f"🌐 Found {len(node_output.get('web_results', []))} web results...\n" if len(node_output.get('web_results', [])) > 0 else "Web search not enabled.\n"
                 elif node_name == "generate_answer":
                     answer = node_output.get("answer", "")
                     if answer:
                         yield answer
+                elif node_name == "summarize_response\n":
+                    yield f"Summarizing response...\n"
+                    answer = node_output.get("answer", "")
+                    if answer:
+                        yield answer
+                elif node_name == "handle_error":
+                    yield f"Error: {node_output.get('answer', 'Unknown error')}\n"
                         
         except Exception as e:
             logger.error(f"Error in streaming workflow: {e}")
