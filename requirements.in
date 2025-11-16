@@ -1,0 +1,9 @@
+# Core dependencies
+langchain
+langgraph
+streamlit
+python-dotenv
+pypdf
+pinecone-client
+langchain-pinecone
+ddgs
